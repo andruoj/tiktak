@@ -24,7 +24,7 @@
   body {
     font-family: var(--font);
     font-weight: 400;
-    font-size: 15px;
+    font-size: 12px;
     line-height: 1.5;
     letter-spacing: 0;
     font-variant-ligatures: none;
@@ -69,16 +69,12 @@
     display: none;
     margin-top: 0.4em;
     height: 1.5em;
-    align-items: center;
-    gap: 8px;
+    align-items: baseline;
+    gap: 0.3em;
   }
   #dots.show { display: flex; }
   #dots span {
     display: block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--fg);
     opacity: 0;
     animation: blink-dot 1.2s infinite step-end;
   }
@@ -93,13 +89,13 @@
     .cur { display: none; }
   }
   @media (min-width: 700px) {
-    body { font-size: 18px; padding-top: 40px; padding-left: 40px; }
+    body { padding-top: 40px; padding-left: 40px; }
   }
 </style>
 </head>
 <body>
 <div id="terminal"></div>
-<div id="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+<div id="dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></div>
 
 <script>
 (function () {
