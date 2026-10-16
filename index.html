@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<title>GHOST TAG</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #fff;
+    /* Native terminal font: SF Mono / Menlo on iPhone, system monospace (Droid Sans Mono) on Android. */
+    --font: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Droid Sans Mono", "Roboto Mono", Consolas, monospace;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    min-height: 100%;
+  }
+  body {
+    font-family: var(--font);
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 1.5;
+    letter-spacing: 0;
+    font-variant-ligatures: none;
+    padding: calc(24px + env(safe-area-inset-top, 0px))
+             calc(18px + env(safe-area-inset-right, 0px))
+             calc(24px + env(safe-area-inset-bottom, 0px))
+             calc(18px + env(safe-area-inset-left, 0px));
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  #terminal { max-width: 80ch; }
+  .line {
+    display: none;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .line.gap { margin-top: 1.5em; }
+  .line.show { display: block; }
+  .line .rest { visibility: hidden; }
+
+  /* Block cursor (zero layout width, so text never shifts) */
+  .cur {
+    display: inline-block;
+    position: relative;
+    width: 0;
+  }
+  .cur::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.2em;
+    width: 0.6em;
+    height: 1.1em;
+    background: var(--fg);
+    animation: blink 1s steps(1) infinite;
+  }
+  .cur.typing::after { animation: none; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #dots {
+    display: none;
+    margin-top: 0.4em;
+    height: 1.5em;
+    align-items: center;
+    gap: 8px;
+  }
+  #dots.show { display: flex; }
+  #dots span {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--fg);
+    opacity: 0;
+    animation: blink-dot 1.2s infinite step-end;
+  }
+  #dots span:nth-child(2) { animation-delay: 0.2s; }
+  #dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink-dot {
+    0%   { opacity: 1; }
+    40%  { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #dots span { animation: none; opacity: 1; }
+    .cur { display: none; }
+  }
+  @media (min-width: 700px) {
+    body { font-size: 18px; padding-top: 40px; padding-left: 40px; }
+  }
+</style>
+</head>
+<body>
+<div id="terminal"></div>
+<div id="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var REDIRECT_URL   = "https://www.tiktok.com/";
+  var START_DELAY    = 1400;  // ms of black screen before the first line
+  var REDIRECT_DELAY = 5000;  // ms after the last line, before redirect
+  var SHOW_CURSOR    = true;  // set to false to remove the block cursor
+
+  // Old-system output: characters arrive in uneven bursts, like a slow serial line.
+  // Fixed patterns (not random) so every scan plays out identically.
+  var CHUNKS = [2, 1, 3, 2, 2, 1, 3, 1, 2];            // characters per burst
+  var DELAYS = [38, 46, 30, 54, 36, 42, 50, 34];       // ms between bursts
+
+  function detectPlatform() {
+    var ua = navigator.userAgent || "";
+    if (/Android/i.test(ua)) return "Android";
+    if (/iPhone|iPod/i.test(ua)) return "iPhone";
+    try {
+      var p = navigator.userAgentData && navigator.userAgentData.platform;
+      if (p && /Android/i.test(p)) return "Android";
+    } catch (e) {}
+    return "Unknown";
+  }
+
+  function formatNow() {
+    var d = new Date();
+    try {
+      return d.toLocaleString(undefined, {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit"
+      });
+    } catch (e) {
+      return d.toString();
+    }
+  }
+
+  var platform = detectPlatform();
+
+  // pause = ms of waiting before the line starts (after the previous line finishes).
+  // hang  = this line's pause is a long stall; the cursor freezes solid during it.
+  // slow  = typing-speed multiplier for this line (higher = slower).
+  // fast  = alert-style line, printed in larger bursts.
+  // gap   = one blank line precedes it (spacing only, no delay).
+  var lines = [
+    { t: "LOCAL SESSION // LIVE",                                pause: 0 },
+    { t: "", clock: true, gap: true,                             pause: 400 },
+    { t: "SESSION INITIALIZATION", gap: true,                    pause: 700 },
+    { t: "[SYS] Client environment detected.", gap: true,        pause: 900 },
+    { t: "[SYS] Device platform: " + platform,                   pause: 450 },
+    { t: "[NFC] Payload received.",                              pause: 1300 },
+    { t: "[NFC] Handshake complete.",                            pause: 1900 },
+    { t: "[SYS] Session initialized.",                           pause: 3800, hang: true },
+    { t: "[SYS] Redirect request queued.",                       pause: 250 },
+    { t: "[WARN] Automatic navigation was not initiated.",       pause: 1800, fast: true },
+    { t: "[SYS] Expected navigation event not observed.",        pause: 300 },
+    { t: "[AUTH] Manual authorization required.",                pause: 1600, fast: true },
+    { t: "The destination is ready. Waiting for authorization.", gap: true, pause: 2000, slow: 1.6 },
+    { t: "[SYS] No response received.", gap: true,               pause: 5500 },
+    { t: "[SYS] Initiating automatic redirect...",               pause: 500,  fast: true }
+  ];
+
+  var terminal = document.getElementById("terminal");
+  var dots = document.getElementById("dots");
+  var clockEl = null;
+  var els = [];
+
+  lines.forEach(function (l) {
+    var div = document.createElement("div");
+    div.className = "line" + (l.gap ? " gap" : "");
+    var vis = document.createElement("span");
+    vis.className = "typed";
+    var rest = document.createElement("span");
+    rest.className = "rest";
+    rest.textContent = l.clock ? "" : l.t;
+    div.appendChild(vis);
+    div.appendChild(rest);
+    if (l.clock) clockEl = vis;
+    terminal.appendChild(div);
+    els.push(div);
+  });
+
+  var cur = document.createElement("span");
+  cur.className = "cur";
+  cur.setAttribute("aria-hidden", "true");
+
+  function startClock() {
+    clockEl.textContent = formatNow();
+    setInterval(function () { clockEl.textContent = formatNow(); }, 1000);
+  }
+
+  var redirected = false;
+  function redirect() {
+    if (redirected) return;
+    redirected = true;
+    window.location.assign(REDIRECT_URL);
+  }
+
+  function finish() {
+    if (cur.parentNode) cur.parentNode.removeChild(cur);
+    dots.classList.add("show");
+    setTimeout(redirect, REDIRECT_DELAY);
+  }
+
+  var reduce = window.matchMedia &&
+               window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (reduce) {
+    setTimeout(function () {
+      els.forEach(function (el, i) {
+        el.classList.add("show");
+        if (!lines[i].clock) {
+          el.querySelector(".typed").textContent = lines[i].t;
+          el.querySelector(".rest").textContent = "";
+        }
+      });
+      startClock();
+      finish();
+    }, START_DELAY);
+    return;
+  }
+
+  var tick = 0;
+
+  function typeLine(i) {
+    var l = lines[i], el = els[i];
+    var vis = el.querySelector(".typed");
+    var rest = el.querySelector(".rest");
+    el.classList.add("show");
+
+    if (SHOW_CURSOR) {
+      el.insertBefore(cur, rest);
+      cur.className = "cur typing";
+    }
+
+    function done() {
+      // cursor blinks while the system "waits"; stays solid (frozen) before a hang
+      var next = lines[i + 1];
+      cur.className = (next && next.hang) ? "cur typing" : "cur";
+      if (i === lines.length - 1) { finish(); return; }
+      setTimeout(function () { typeLine(i + 1); }, lines[i + 1].pause);
+    }
+
+    if (l.clock) { startClock(); done(); return; }
+
+    var n = 0;
+    (function step() {
+      var size  = CHUNKS[tick % CHUNKS.length] * (l.fast ? 2 : 1);
+      var delay = DELAYS[tick % DELAYS.length] * (l.slow || 1);
+      tick++;
+      n = Math.min(n + size, l.t.length);
+      vis.textContent  = l.t.slice(0, n);
+      rest.textContent = l.t.slice(n);
+      if (n < l.t.length) setTimeout(step, delay); else done();
+    })();
+  }
+
+  setTimeout(function () { typeLine(0); }, START_DELAY);
+})();
+</script>
+</body>
+</html>
