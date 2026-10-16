@@ -126,6 +126,39 @@
     return "Unknown";
   }
 
+  function detectBrowser() {
+    var ua = navigator.userAgent || "";
+    if (/EdgA?\/|Edg\//.test(ua)) return "Edge";
+    if (/OPR\/|Opera/.test(ua)) return "Opera";
+    if (/SamsungBrowser/.test(ua)) return "Samsung Internet";
+    if (/FxiOS|Firefox/.test(ua)) return "Firefox";
+    if (/CriOS|Chrome\//.test(ua)) return "Chrome";
+    if (/Safari\//.test(ua)) return "Safari";
+    return "Unknown browser";
+  }
+
+  // Device name from what the browser exposes. iPhones don't reveal their model;
+  // Android phones may (Chrome often hides it), so this can be generic.
+  function detectDevice(model) {
+    var ua = navigator.userAgent || "";
+    if (/iPhone/.test(ua)) return "iPhone";
+    if (/iPod/.test(ua)) return "iPod";
+    if (/iPad/.test(ua)) return "iPad";
+    if (/Android/i.test(ua)) {
+      if (!model) {
+        var m = ua.match(/Android[^;)]*;\s*([^;)]+)/);
+        if (m) model = m[1].replace(/\s+Build.*$/, "").trim();
+      }
+      if (model && model.length > 1 && !/^(K|Android)$/i.test(model)) return model;
+      return "Android device";
+    }
+    return "Unknown device";
+  }
+
+  function envText(model) {
+    return "[SYS] Client environment detected: " + detectDevice(model) + " (" + detectBrowser() + ")";
+  }
+
   function formatNow() {
     var d = new Date();
     try {
@@ -149,7 +182,7 @@
     { t: "LOCAL SESSION // LIVE",                                pause: 0 },
     { t: "", clock: true, gap: true,                             pause: 400 },
     { t: "SESSION INITIALIZATION", gap: true,                    pause: 700 },
-    { t: "[SYS] Client environment detected.", gap: true,        pause: 900 },
+    { t: envText(), gap: true,                                   pause: 900 },
     { t: "[SYS] Device platform: " + platform,                   pause: 450 },
     { t: "[NFC] Payload received.",                              pause: 1300 },
     { t: "[NFC] Handshake complete.",                            pause: 1900 },
@@ -182,6 +215,19 @@
     terminal.appendChild(div);
     els.push(div);
   });
+
+  // Chrome on Android can expose the device model asynchronously (HTTPS only).
+  try {
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+      navigator.userAgentData.getHighEntropyValues(["model"]).then(function (v) {
+        if (!v || !v.model) return;
+        var el = els[3], vis = el.querySelector(".typed"), rest = el.querySelector(".rest");
+        if (vis.textContent !== "") return;           // already started typing
+        lines[3].t = envText(v.model);
+        rest.textContent = lines[3].t;
+      }).catch(function () {});
+    }
+  } catch (e) {}
 
   var cur = document.createElement("span");
   cur.className = "cur";
